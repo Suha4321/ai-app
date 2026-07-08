@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environment (in case you use one locally)
+.venv/
+opt/venv/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Docker
+.docker/
+*.dockerenv
+
+# Logs
+*.log
+logs/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+ollama-models/
+open-webui-data/
+
+# Large files
+*.gguf
+*.bin

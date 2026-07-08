@@ -1,0 +1,32 @@
+# Stage 1: Builder
+FROM python:3.12-slim AS builder
+
+# Create a virtual environment
+RUN python -m venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: Final runtime image
+FROM python:3.12-slim
+
+# Copy the virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Set the virtual env as active
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# Copy application code
+COPY . .
+# for FastAPI and Gradio
+EXPOSE 8000 7860
+
+# Use the virtual environment's uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
