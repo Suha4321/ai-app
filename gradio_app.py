@@ -5,27 +5,44 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ====================== CONFIG (12-Factor) ======================
 API_URL = os.getenv("FASTAPI_URL", "http://fastapi:8000/ask")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.2")
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "120"))
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "10"))
+ENABLE_SHARE = os.getenv("ENABLE_SHARE", "true").lower() == "true"
+SERVER_PORT = int(os.getenv("SERVER_PORT", "7860"))
+
+# Fallback models from env (comma separated)
+FALLBACK_MODELS = os.getenv(
+    "FALLBACK_MODELS", 
+    "llama3.2,phi3:mini,qwen2.5:3b,gemma2:2b"
+).split(",")
 
 
 def get_available_models():
     models_env = os.getenv("AVAILABLE_MODELS", "").strip()
+    
     if models_env:
         return [m.strip() for m in models_env.split(",") if m.strip()]
+    
+    # Dynamic fetch from Ollama
     try:
-        resp = requests.get("http://ollama:11434/api/tags", timeout=10)
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=OLLAMA_TIMEOUT)
         if resp.status_code == 200:
-            return [m["name"] for m in resp.json().get("models", [])] or ["llama3.2"]
-        return ["llama3.2", "phi3:mini", "qwen2.5:3b", "gemma2:2b"]
+            models = [m["name"] for m in resp.json().get("models", [])]
+            return models if models else FALLBACK_MODELS
+        return FALLBACK_MODELS
     except:
-        return ["llama3.2", "phi3:mini", "qwen2.5:3b", "gemma2:2b"]
+        return FALLBACK_MODELS
 
 
 def respond(message, history, model, temperature, system_prompt):
     if not message:
         return ""
 
-    # Build prompt
+    # Build prompt with history + system prompt
     prompt_parts = []
     if system_prompt.strip():
         prompt_parts.append(f"System: {system_prompt.strip()}")
@@ -45,10 +62,12 @@ def respond(message, history, model, temperature, system_prompt):
             "temperature": float(temperature)
         }
 
-        # Non-streaming call (more stable)
-        response = requests.post(API_URL, json=payload, timeout=120)
+        response = requests.post(
+            API_URL, 
+            json=payload, 
+            timeout=REQUEST_TIMEOUT
+        )
         response.raise_for_status()
-        
         result = response.json()
         return result.get("response", "No response from model")
 
@@ -80,4 +99,8 @@ with gr.Blocks(title="Local AI Assistant", theme=gr.themes.Soft()) as demo:
                 description="Select a model and start chatting"
             )
 
-demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
+demo.launch(
+    server_name="0.0.0.0", 
+    server_port=SERVER_PORT, 
+    share=ENABLE_SHARE
+)
