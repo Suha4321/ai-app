@@ -43,6 +43,8 @@ Thumbs.db
 # Project specific
 ollama-models/
 open-webui-data/
+data/
+*.db
 
 # Large files
 *.gguf
