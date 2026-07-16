@@ -8,30 +8,45 @@ load_dotenv()
 
 app = FastAPI(title="Local AI Service")
 
-OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434") + "/api/generate"
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+# ====================== 12-FACTOR CONFIG ======================
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434") + "/api/generate"
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.2")
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "90"))
+
 
 class AskRequest(BaseModel):
     prompt: str
     model: str | None = None
 
+
 @app.get("/")
 def home():
-    return {"status": "healthy", "default_model": DEFAULT_MODEL}
+    return {
+        "status": "healthy",
+        "default_model": DEFAULT_MODEL
+    }
+
 
 @app.post("/ask")
 def ask_ollama(request: AskRequest):
     try:
         model_to_use = request.model or DEFAULT_MODEL
-        
+
         payload = {
             "model": model_to_use,
             "prompt": request.prompt,
             "stream": False
         }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=90)
+
+        resp = requests.post(
+            OLLAMA_URL, 
+            json=payload, 
+            timeout=REQUEST_TIMEOUT
+        )
         resp.raise_for_status()
         result = resp.json()
-        return {"response": result.get("response", "No response")}
+
+        return {"response": result.get("response", "No response from model")}
+
     except Exception as e:
         return {"response": f"Error: {str(e)}"}
