@@ -2,27 +2,23 @@ import os
 import sqlite3
 import gradio as gr
 import requests
+from pypdf import PdfReader
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ====================== CONFIG (12-Factor) ======================
 API_URL = os.getenv("FASTAPI_URL", "http://fastapi:8000/ask")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.2")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "120"))
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "10"))
 ENABLE_SHARE = os.getenv("ENABLE_SHARE", "false").lower() == "true"
 SERVER_PORT = int(os.getenv("SERVER_PORT", "7860"))
 DB_PATH = os.getenv("DB_PATH", "/app/data/chat_history.db")
 
-# Fallback models from env (comma separated)
-FALLBACK_MODELS = os.getenv(
-    "FALLBACK_MODELS", 
-    "llama3.2,phi3:mini,qwen2.5:3b,gemma2:2b"
-).split(",")
+AVAILABLE_MODELS = os.getenv("AVAILABLE_MODELS", "llama3.2,phi3:mini,qwen2.5:3b,gemma2:2b").split(",")
 
-# ====================== DATABASE (SQLite) ======================
+document_context = ""
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -30,8 +26,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            content TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -43,119 +38,122 @@ def load_history():
     cursor.execute("SELECT role, content FROM messages ORDER BY id ASC")
     rows = cursor.fetchall()
     conn.close()
-
-    history = []
-    for i in range(0, len(rows), 2):
-        if i + 1 < len(rows):
-            history.append([rows[i][1], rows[i + 1][1]])
-    return history
+    return [{"role": role, "content": content} for role, content in rows]
 
 def save_message(role, content):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO messages (role, content) VALUES (?, ?)",
-        (role, content)
-    )
+    cursor.execute("INSERT INTO messages (role, content) VALUES (?, ?)", (role, content))
     conn.commit()
     conn.close()
 
-
-# Initialize database
 init_db()
 
-# ====================== CHAT LOGIC ======================
-def get_available_models():
-    models_env = os.getenv("AVAILABLE_MODELS", "").strip()
-    
-    if models_env:
-        return [m.strip() for m in models_env.split(",") if m.strip()]
-    
-    # Dynamic fetch from Ollama
-    try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=OLLAMA_TIMEOUT)
-        if resp.status_code == 200:
-            models = [m["name"] for m in resp.json().get("models", [])]
-            return models if models else FALLBACK_MODELS
-        return FALLBACK_MODELS
-    except:
-        return FALLBACK_MODELS
-
-
-def respond(message, history, model, temperature, system_prompt):
-    print(">>> [DEBUG] respond() function was called!")
-    
-    if not message or not message.strip():
+def extract_text(file):
+    if file is None:
         return ""
+    try:
+        if file.name.endswith(".pdf"):
+            reader = PdfReader(file.name)
+            return "\n".join([p.extract_text() or "" for p in reader.pages]).strip()
+        else:
+            with open(file.name, "r", encoding="utf-8") as f:
+                return f.read().strip()
+    except Exception as e:
+        return f"[Error: {str(e)}]"
+
+def generate_response(message, history, model, mode, document_context):
+    save_message("user", message)
+
+    if mode == "RAG (FastAPI)" and document_context and document_context.strip():
+        prompt_parts = [
+            "You are a helpful assistant. Answer ONLY using the Document Context below.",
+            "If the answer cannot be found in the document, say 'I don't have that information in the document.'",
+            "\n=========================================",
+            f"DOCUMENT CONTEXT:\n{document_context}",
+            "=========================================\n",
+            "CONVERSATION HISTORY:"
+        ]
+        for msg in load_history():
+            role_label = "Human" if msg["role"] == "user" else "Assistant"
+            prompt_parts.append(f"{role_label}: {msg['content']}")
+        prompt_parts.append(f"\nCURRENT QUESTION: {message}")
+        prompt_parts.append("=========================================")
+        prompt_parts.append("Assistant:")
+
+        full_prompt = "\n".join(prompt_parts)
+        payload = {"prompt": full_prompt, "model": model}
+        url = API_URL
+    else:
+        payload = {"prompt": message, "model": model}
+        url = API_URL
 
     try:
-        # Build prompt
-        prompt_parts = []
-        if system_prompt.strip():
-            prompt_parts.append(f"System: {system_prompt.strip()}")
-
-        for user_msg, assistant_msg in history:
-            prompt_parts.append(f"Human: {user_msg}")
-            if assistant_msg:
-                prompt_parts.append(f"Assistant: {assistant_msg}")
-
-        prompt_parts.append(f"Human: {message}")
-        full_prompt = "\n".join(prompt_parts) + "\nAssistant:"
-
-        payload = {
-            "prompt": full_prompt,
-            "model": model,
-            "temperature": float(temperature)
-        }
-
-        response = requests.post(API_URL, json=payload, timeout=REQUEST_TIMEOUT)
+        response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        result = response.json()
-        assistant_response = result.get("response", "No response from model")
-
-        # Save to database (this must come BEFORE the return)
-        print(">>> [DEBUG] Saving to database...")
-        save_message("user", message)
-        save_message("assistant", assistant_response)
-
-        return assistant_response
-
+        bot_message = response.json().get("response", "No response")
     except Exception as e:
-        error_msg = f"Error: {str(e)}"
-        try:
-            save_message("user", message)
-            save_message("assistant", error_msg)
-        except:
-            pass
-        return error_msg
+        bot_message = f"Error: {str(e)}"
 
+    save_message("assistant", bot_message)
+    return "", load_history()
 
-# ====================== UI ======================
-with gr.Blocks(title="Local AI Assistant", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🧠 Local AI Assistant")
+def process_file(file):
+    global document_context
+    if file is None:
+        return "No file uploaded."
+    text = extract_text(file)
+    document_context = text
+    return f"Successfully processed {os.path.basename(file.name)}. Context updated!"
+
+with gr.Blocks(title="Local AI Research Assistant", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# Local LLM & RAG Chat Interface")
 
     with gr.Row():
-        with gr.Column(scale=1):
-            with gr.Accordion("Settings", open=True):
-                models = get_available_models()
-                model = gr.Dropdown(models, value=models[0], label="Model")
-                temperature = gr.Slider(0, 1.5, value=0.7, step=0.1, label="Temperature")
-                system_prompt = gr.Textbox(
-                    label="System Prompt", 
-                    lines=3, 
-                    placeholder="You are a helpful assistant..."
-                )
-
-        with gr.Column(scale=3):
-            chatbot = gr.ChatInterface(
-                respond,
-                additional_inputs=[model, temperature, system_prompt],
-                title="Chat with local models",
-                description="Select a model and start chatting"
+        with gr.Column(scale=2):
+            mode_radio = gr.Radio(
+                choices=["Standard Chat", "RAG (FastAPI)"],
+                value="Standard Chat",
+                label="Execution Mode"
             )
+            model_dropdown = gr.Dropdown(
+                choices=AVAILABLE_MODELS,
+                value=DEFAULT_MODEL,
+                label="Model Selection"
+            )
+            file_uploader = gr.File(
+                label="Upload Document (.pdf, .txt)",
+                file_types=[".pdf", ".txt"]
+            )
+            upload_status = gr.Textbox(label="Upload Status", interactive=False)
+           
+        with gr.Column(scale=4):
+            chatbot = gr.Chatbot(
+                value=load_history(),
+                label="Chat History",
+                type="messages"
+            )
+            msg_input = gr.Textbox(placeholder="Type your message here...", label="Your Message")
+            clear_btn = gr.Button("Clear History")
 
-demo.launch(
-    server_name="0.0.0.0", 
-    server_port=SERVER_PORT, 
-    share=ENABLE_SHARE
-)
+    file_uploader.change(fn=process_file, inputs=file_uploader, outputs=upload_status)
+
+    msg_input.submit(
+        fn=generate_response,
+        inputs=[msg_input, chatbot, model_dropdown, mode_radio, doc_state],
+        outputs=[msg_input, chatbot]
+    )
+
+    def clear_chat():
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM messages")
+        conn.commit()
+        conn.close()
+        global document_context
+        document_context = ""
+        return [], "Context and history cleared."
+
+    clear_btn.click(fn=clear_chat, inputs=None, outputs=[chatbot, upload_status])
+
+demo.launch(server_name="0.0.0.0", server_port=SERVER_PORT, share=ENABLE_SHARE, show_api=False)

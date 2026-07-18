@@ -17,6 +17,7 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "90"))
 class AskRequest(BaseModel):
     prompt: str
     model: str | None = None
+    temperature: float | None = 0.7
 
 
 @app.get("/")
@@ -31,11 +32,15 @@ def home():
 def ask_ollama(request: AskRequest):
     try:
         model_to_use = request.model or DEFAULT_MODEL
+        print(f"FastAPI Routing Request to Model: {model_to_use}", flush=True)
 
         payload = {
             "model": model_to_use,
             "prompt": request.prompt,
-            "stream": False
+            "stream": False,
+            "options": {
+                "temperature": request.temperature 
+            }
         }
 
         resp = requests.post(
