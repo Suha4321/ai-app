@@ -5,27 +5,51 @@ services:
     volumes: ["./ollama-models:/root/.ollama"]
     restart: unless-stopped
 
+  ollama-model-puller:
+    image: curlimages/curl:8.11.1
+    container_name: ollama-model-puller
+    depends_on:
+      - ollama
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: >
+      "
+      echo 'Waiting for Ollama to boot...';
+      while ! curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
+      echo 'Pulling embedding model...';
+      curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"nomic-embed-text\"}';
+      echo 'Pulling primary LLM...';
+      curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3.2\"}';
+      echo 'All models initialized permanently.';
+      "
+
   fastapi:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile.fastapi
     ports: ["8000:8000"]
     depends_on: [ollama]
-    env_file: .env
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
     restart: unless-stopped
 
   gradio:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile.gradio
     command: python gradio_app.py
     ports: ["7860:7860"]
-    depends_on: [fastapi]
-    env_file: .env
+    depends_on: 
+      fastapi:
+        condition: service_started
+      ollama-model-puller:
+        condition: service_completed_successfully
     environment:
       - FASTAPI_URL=http://fastapi:8000/ask
+      - OLLAMA_URL=http://ollama:11434  # FIX: Allows Gradio's ChromaDB to find Ollama
     restart: unless-stopped
     volumes:
       - ./data:/app/data
-
+      - ./chroma_db:/app/chroma_db
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     ports: ["8080:8080"]
