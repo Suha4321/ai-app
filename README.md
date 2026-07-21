@@ -43,17 +43,22 @@ docker exec -it ai-app-ollama-1 ollama pull phi3:mini
 docker exec -it ai-app-ollama-1 ollama pull qwen2.5:3b
 
 ## Project structure 
-ai-app/
-├── app/main.py                 # FastAPI backend
-├── gradio_app.py               # Gradio frontend with model selector
-├── Dockerfile                  # Multi-stage build with virtualenv
-├── docker-compose.yml
-├── requirements.txt            # Pinned dependencies
-├── .env.example
-├── .gitignore
+```text
+i-app/
+├── app/
+│   ├── main.py              # FastAPI backend logic
+│   ├── chroma_db/          # Persistent collection for vector embeddings
+│   ├── data/               # SQLite database path (chat_history.db)
+│   └── ollama-models/      # Persistent local cache for downloaded LLM weights
 ├── .dockerignore
-└── README.md
-
+├── .gitignore
+├── docker-compose.yml
+├── Dockerfile.fastapi       # Build configuration for the FastAPI service
+├── Dockerfile.gradio        # Build configuration for the Gradio interface
+├── gradio_app.py           # Gradio frontend entry point
+├── README.md               # System documentation
+└── requirements.txt        # Shared package dependencies
+```
 # Development commands
 docker compose up --build -d     # Start all services
 docker compose logs -f gradio    # View Gradio logs
