@@ -33,6 +33,11 @@ services:
     restart: unless-stopped
 
   gradio:
+    platform: linux/arm64
+    image: ai-app-gradio
+    environment:
+      - CHROMA_TELEMETRY_ON=False
+      - ANONYMIZED_TELEMETRY=False
     build: 
       context: .
       dockerfile: Dockerfile.gradio
@@ -43,13 +48,15 @@ services:
         condition: service_started
       ollama-model-puller:
         condition: service_completed_successfully
-    environment:
-      - FASTAPI_URL=http://fastapi:8000/ask
-      - OLLAMA_URL=http://ollama:11434  # FIX: Allows Gradio's ChromaDB to find Ollama
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
     volumes:
       - ./data:/app/data
       - ./chroma_db:/app/chroma_db
+
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     ports: ["8080:8080"]
