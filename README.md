@@ -66,8 +66,6 @@ docker compose down              # Stop everything
 This project runs as a decoupled microservices stack managed via Docker Compose. It leverages native Apple Silicon virtualization to handle local document extraction, vector embeddings, and large language model (LLM) generation entirely on-device.
 
 ## Architecture Diagram & Component Breakdown
-
-
                   ┌──────────────────────┐
                   │  Open WebUI (Port)   │ (Alternative Chat UI)
                   └──────────┬───────────┘
