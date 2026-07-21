@@ -66,6 +66,7 @@ docker compose down              # Stop everything
 This project runs as a decoupled microservices stack managed via Docker Compose. It leverages native Apple Silicon virtualization to handle local document extraction, vector embeddings, and large language model (LLM) generation entirely on-device.
 
 ## Architecture Diagram & Component Breakdown
+```text
                   ┌──────────────────────┐
                   │  Open WebUI (Port)   │ (Alternative Chat UI)
                   └──────────┬───────────┘
@@ -80,7 +81,7 @@ This project runs as a decoupled microservices stack managed via Docker Compose.
        │                                                   │
        └─► [SQLite (Chat History)]                         └─► [nomic-embed-text]
 
-
+```
 1. **Gradio UI (`ai-app-gradio-1`)**: The user interface. It handles file uploads (`.pdf`, `.txt`), parses document text, manages the local **ChromaDB** vector instance for RAG context, and connects to an underlying **SQLite** database for chat persistence.
 2. **FastAPI (`ai-app-fastapi-1`)**: The routing middleware. It exposes an ingestion gateway (`/ask`), enforces system-wide timeouts, parses requests against strict Pydantic schemas, and handles upstream communication with Ollama.
 3. **Ollama (`ai-app-ollama-1`)**: The heavy-computational core. It runs as a localized background service managing raw model weights, execution contexts, and token generation.
