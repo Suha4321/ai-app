@@ -44,6 +44,7 @@ Thumbs.db
 ollama-models/
 open-webui-data/
 data/
+chroma_db/
 *.db
 
 # Large files
