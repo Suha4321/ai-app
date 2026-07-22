@@ -9,7 +9,8 @@ load_dotenv()
 app = FastAPI(title="Local AI Service")
 
 # ====================== 12-FACTOR CONFIG ======================
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434") + "/api/generate"
+BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")  
+OLLAMA_URL = f"{BASE_URL.rstrip('/')}/api/generate"
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.2")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "90"))
 

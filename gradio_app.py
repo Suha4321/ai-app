@@ -2,11 +2,13 @@ import os
 import sqlite3
 import gradio as gr
 import requests
-from pypdf import PdfReader
+import chromadb
+from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# ====================== CONFIG ======================
 API_URL = os.getenv("FASTAPI_URL", "http://fastapi:8000/ask")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.2")
@@ -17,8 +19,57 @@ DB_PATH = os.getenv("DB_PATH", "/app/data/chat_history.db")
 
 AVAILABLE_MODELS = os.getenv("AVAILABLE_MODELS", "llama3.2,phi3:mini,qwen2.5:3b,gemma2:2b").split(",")
 
-document_context = ""
+# Ensure data directory exists
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
+# ====================== CHROMA VECTOR DB ======================
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+EMBEDDING_MODEL = "nomic-embed-text"
+
+local_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+    model_name="all-MiniLM-L6-v2"
+)
+
+# Bind Ollama directly into your Chroma collection instance
+collection = chroma_client.get_or_create_collection(
+    name="documents",
+    embedding_function=local_ef
+)
+
+def chunk_text(text, chunk_size=500, overlap=50):
+    chunks = []
+    for i in range(0, len(text), chunk_size - overlap):
+        chunk = text[i:i + chunk_size]
+        chunks.append(chunk)
+    return chunks
+
+def add_to_vector_db(text, filename):
+    chunks = chunk_text(text)
+    
+    documents = []
+    metadatas = []
+    ids = []
+    
+    for i, chunk in enumerate(chunks):
+        documents.append(chunk)
+        metadatas.append({"filename": filename, "chunk": i})
+        ids.append(f"{filename}_{i}")
+        
+    if documents:
+        # Chroma automatically batches these and ships them to your Ollama Docker for vectorization
+        collection.add(documents=documents, metadatas=metadatas, ids=ids)
+
+def search_vector_db(query, n_results=3):
+    # Chroma handles querying Ollama to convert your search string automatically
+    results = collection.query(query_texts=[query], n_results=n_results)
+    if results and "documents" in results and results["documents"]:
+        inner_docs = results["documents"][0]
+        # Ensure it is a valid list of text strings before returning
+        if isinstance(inner_docs, list) and len(inner_docs) > 0:
+            return inner_docs
+    return []
+
+# ====================== DATABASE ======================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -49,39 +100,58 @@ def save_message(role, content):
 
 init_db()
 
-def extract_text(file):
-    if file is None:
-        return ""
+# ====================== FILE EXTRACTION (FIX) ======================
+def extract_text(file_path):
+    """Safely extracts text from uploaded .txt or .pdf files."""
     try:
-        if file.name.endswith(".pdf"):
-            reader = PdfReader(file.name)
-            return "\n".join([p.extract_text() or "" for p in reader.pages]).strip()
+        if file_path.endswith('.txt'):
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        elif file_path.endswith('.pdf'):
+            # Lazy import so pypdf is only required if a PDF is actually uploaded
+            import pypdf
+            reader = pypdf.PdfReader(file_path)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() or ""
+            return text
         else:
-            with open(file.name, "r", encoding="utf-8") as f:
-                return f.read().strip()
+            return "Error: Unsupported file format."
     except Exception as e:
-        return f"[Error: {str(e)}]"
+        return f"Error reading file: {str(e)}"
 
-def generate_response(message, history, model, mode, document_context):
+# ====================== CHAT LOGIC ======================
+def generate_response(message, history, model, mode):
+    if not message.strip():
+        return "", history
+
     save_message("user", message)
+    history.append({"role": "user", "content": message})
 
-    if mode == "RAG (FastAPI)" and document_context and document_context.strip():
-        prompt_parts = [
-            "You are a helpful assistant. Answer ONLY using the Document Context below.",
-            "If the answer cannot be found in the document, say 'I don't have that information in the document.'",
-            "\n=========================================",
-            f"DOCUMENT CONTEXT:\n{document_context}",
-            "=========================================\n",
-            "CONVERSATION HISTORY:"
-        ]
-        for msg in load_history():
-            role_label = "Human" if msg["role"] == "user" else "Assistant"
-            prompt_parts.append(f"{role_label}: {msg['content']}")
-        prompt_parts.append(f"\nCURRENT QUESTION: {message}")
-        prompt_parts.append("=========================================")
-        prompt_parts.append("Assistant:")
+    if mode == "RAG (FastAPI)":
+        relevant_chunks = search_vector_db(message)
+        
+        # 🔍 DEBUG LOG: Check if anything was pulled from ChromaDB
+        print(f"\n[RAG DEBUG] Found {len(relevant_chunks)} relevant chunks for query: '{message}'")
+        for idx, chunk in enumerate(relevant_chunks):
+            print(f"  -> Chunk {idx}: {chunk[:100]}...")
 
-        full_prompt = "\n".join(prompt_parts)
+        if relevant_chunks:
+            context = "\n\n".join(relevant_chunks)
+            # FIX: Explicitly tell the LLM that this context IS the uploaded document content
+            full_prompt = (
+                f"You are a helpful assistant. The following text contains segments extracted directly "
+                f"from the user's uploaded document/PDF. Use this text to fulfill their request or question.\n\n"
+                f"--- EXTRACTED DOCUMENT TEXT START ---\n"
+                f"{context}\n"
+                f"--- EXTRACTED DOCUMENT TEXT END ---\n\n"
+                f"User Instruction: {message}\n\n"
+                f"Answer:"
+            )
+        else:
+            context = "(No relevant content found)"
+            full_prompt = message
+        
         payload = {"prompt": full_prompt, "model": model}
         url = API_URL
     else:
@@ -93,21 +163,16 @@ def generate_response(message, history, model, mode, document_context):
         response.raise_for_status()
         bot_message = response.json().get("response", "No response")
     except Exception as e:
-        bot_message = f"Error: {str(e)}"
+        bot_message = f"Error communicating with backend: {str(e)}"
 
     save_message("assistant", bot_message)
-    return "", load_history()
+    history.append({"role": "assistant", "content": bot_message})
+    
+    return "", history
 
-def process_file(file):
-    global document_context
-    if file is None:
-        return "No file uploaded."
-    text = extract_text(file)
-    document_context = text
-    return f"Successfully processed {os.path.basename(file.name)}. Context updated!"
-
+# ====================== UI ======================
 with gr.Blocks(title="Local AI Research Assistant", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# Local LLM & RAG Chat Interface")
+    gr.Markdown("# 🤖 Local LLM & RAG Chat Interface")
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -123,7 +188,8 @@ with gr.Blocks(title="Local AI Research Assistant", theme=gr.themes.Soft()) as d
             )
             file_uploader = gr.File(
                 label="Upload Document (.pdf, .txt)",
-                file_types=[".pdf", ".txt"]
+                file_types=[".pdf", ".txt"],
+                type="filepath" # Ensures we get a string path to process
             )
             upload_status = gr.Textbox(label="Upload Status", interactive=False)
            
@@ -136,24 +202,43 @@ with gr.Blocks(title="Local AI Research Assistant", theme=gr.themes.Soft()) as d
             msg_input = gr.Textbox(placeholder="Type your message here...", label="Your Message")
             clear_btn = gr.Button("Clear History")
 
+    def process_file(file_path):
+        if file_path is None:
+            return "No file uploaded."
+        text = extract_text(file_path)
+        if text.startswith("Error"):
+            return text
+        filename = os.path.basename(file_path)
+        add_to_vector_db(text, filename)
+        return f"✅ Processed and indexed {filename}"
+
     file_uploader.change(fn=process_file, inputs=file_uploader, outputs=upload_status)
 
     msg_input.submit(
         fn=generate_response,
-        inputs=[msg_input, chatbot, model_dropdown, mode_radio, doc_state],
+        inputs=[msg_input, chatbot, model_dropdown, mode_radio],
         outputs=[msg_input, chatbot]
     )
 
     def clear_chat():
+        global collection
+        # Clear SQL
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("DELETE FROM messages")
         conn.commit()
         conn.close()
-        global document_context
-        document_context = ""
+        
+        # FIX: Correct way to wipe a ChromaDB Collection
+        try:
+            chroma_client.delete_collection("documents")
+        except Exception:
+            pass # Collection might already be missing
+        collection = chroma_client.get_or_create_collection(name="documents")
+        
         return [], "Context and history cleared."
 
     clear_btn.click(fn=clear_chat, inputs=None, outputs=[chatbot, upload_status])
 
-demo.launch(server_name="0.0.0.0", server_port=SERVER_PORT, share=ENABLE_SHARE, show_api=False)
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=SERVER_PORT, share=ENABLE_SHARE, show_api=False)
