@@ -44,7 +44,7 @@ docker exec -it ai-app-ollama-1 ollama pull qwen2.5:3b
 
 ## Project structure 
 ```text
-i-app/
+ai-app/
 ├── app/
 │   ├── main.py              # FastAPI backend logic
 │   ├── chroma_db/          # Persistent collection for vector embeddings
