@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ai-app.fullname" . }}-fastapi
+  labels:
+    {{- include "ai-app.labels" . | nindent 4 }}
+    component: fastapi
+spec:
+  type: {{ .Values.fastapi.service.type }}
+  ports:
+    - port: {{ .Values.fastapi.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ai-app.selectorLabels" . | nindent 4 }}
+    component: fastapi

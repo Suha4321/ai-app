@@ -1,0 +1,15 @@
+apiVersion: v2
+name: ai-app
+description: A Kubernetes Helm chart for the Local AI App (Ollama + FastAPI + Gradio)
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - ollama
+  - fastapi
+  - gradio
+  - llm
+  - kubernetes
+maintainers:
+  - name: Suha
+    url: https://github.com/Suha4321
