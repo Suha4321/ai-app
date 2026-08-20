@@ -282,7 +282,8 @@ Running LLMs locally is resource-volatile. The stack idles at a few GB but needs
 * **LLM Generation Spike (+2.5 GB to 5 GB Memory, Sustained CPU):**
   The moment a prompt is routed to Ollama, it immediately pulls the selected model (e.g., `llama3.2`) into memory. Memory usage for `ai-app-ollama-1` will violently jump from 34 MiB to several gigabytes until token generation completes.
 
-![alt text](<Screenshot 2026-08-20 at 2.43.03 PM.png>)
+<img width="1177" height="499" alt="Screenshot 2026-08-20 at 2 43 03 PM" src="https://github.com/user-attachments/assets/fd6cb287-09ba-4606-a69a-62ef9d49720e" />
+
 ---
 ### Performance Note: CPU vs GPU
 
