@@ -30,30 +30,32 @@ Docker Compose - Fast local development on your Mac	- docker compose up --build 
 Kubernetes (Kind + Helm)- Production-shaped deploy, K8s learning, the portfolio story - helm install ai-app ./helm/ai-app
 
 ## (A) DOCKER COMPOSE QUICK START (LOCAL DEV)
+More details in the v1.1.0 version of the repo.
 ## Quick Start
 
 1. Clone the repository:
-   ```   ```bash
+```bash
    git clone <your-repo-url>
    cd ai-app
-
+```
 ## Development commands
+```bash
 docker compose up --build -d     # Start all services
 docker compose logs -f gradio    # View Gradio logs
 docker compose restart gradio    # Restart only Gradio
 docker compose down              # Stop everything
-
+```
 ## Access the applications
-Access the applications:
-Gradio UI (with model selector): http://localhost:7860
-FastAPI Interactive Docs: http://localhost:8000/docs
-Open WebUI: http://localhost:8080
-Ollama API: http://localhost:11434
+**Access the applications:**
+  - Gradio UI (with model selector): http://localhost:7860
+  - FastAPI Interactive Docs: http://localhost:8000/docs
+  - Open WebUI: http://localhost:8080
+  - Ollama API: http://localhost:11434
 
 ## Available models
-docker exec -it ai-app-ollama-1 ollama pull llama3.2
-docker exec -it ai-app-ollama-1 ollama pull phi3:mini
-docker exec -it ai-app-ollama-1 ollama pull qwen2.5:3b
+  - docker exec -it ai-app-ollama-1 ollama pull llama3.2
+  - docker exec -it ai-app-ollama-1 ollama pull phi3:mini
+  - docker exec -it ai-app-ollama-1 ollama pull qwen2.5:3b
 
 ## B) KUBERNETES DEPLOYMENT (Kind + Helm)
 This deploys the same three services onto a Kubernetes cluster using the Helm chart in helm/ai-app/. Kind (Kubernetes-in-Docker) runs the cluster nodes as Docker containers, so Docker Desktop must be running before you start.
@@ -101,9 +103,9 @@ kubectl get pods -n ai-app -w
 ```
 The pods start in a deliberate cascade — this is expected, not a hang:
 
-- ollama — its init container starts an Ollama server, waits for it, then pulls every model in values.yaml (llama3.2, phi3:mini, qwen2.5:3b, gemma2:2b, nomic-embed-text). First run is slow (several GB of downloads); the pod sits in Init:0/1 → - PodInitializing while this happens.
-- fastapi — comes up once ollama is reachable; goes 1/1 after its /ready probe passes.
-- gradio — has a wait-for-fastapi init container, so it clears last, after FastAPI answers /health.
+- **ollama** — its init container starts an Ollama server, waits for it, then pulls every model in values.yaml (llama3.2, phi3:mini, qwen2.5:3b, gemma2:2b, nomic-embed-text). First run is slow (several GB of downloads); the pod sits in Init:0/1 → - PodInitializing while this happens.
+- **fastapi** — comes up once ollama is reachable; goes 1/1 after its /ready probe passes.
+- **gradio** — has a wait-for-fastapi init container, so it clears last, after FastAPI answers /health.
 
 Watch the model pull live if you want:
 
@@ -129,7 +131,7 @@ Open http://localhost:7860. Test Standard Chat, switch models in the dropdown, t
 
 The list of models to pull lives in one place — values.yaml — and the ollama init container loops over it, so the dropdown and the actually-pulled models never drift out of sync:
 
-yaml
+```yaml
 # helm/ai-app/values.yaml
 ollama:
   models:
@@ -138,8 +140,9 @@ ollama:
     - "qwen2.5:3b"
     - "gemma2:2b"
     - "nomic-embed-text"
-yaml
+```
 # helm/ai-app/templates/deployment-ollama.yaml (init container)
+```yaml
 command:
   - /bin/sh
   - -c
@@ -151,7 +154,7 @@ command:
     ollama pull {{ . }}
     {{- end }}
     kill $pid
-
+```
 ### Upgrading / changing models
 
 After editing values.yaml or a template:
