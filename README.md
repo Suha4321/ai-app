@@ -131,8 +131,8 @@ Open http://localhost:7860. Test Standard Chat, switch models in the dropdown, t
 
 The list of models to pull lives in one place — values.yaml — and the ollama init container loops over it, so the dropdown and the actually-pulled models never drift out of sync:
 
+**helm/ai-app/values.yaml**
 ```yaml
-# helm/ai-app/values.yaml
 ollama:
   models:
     - "llama3.2"
@@ -141,7 +141,7 @@ ollama:
     - "gemma2:2b"
     - "nomic-embed-text"
 ```
-# helm/ai-app/templates/deployment-ollama.yaml (init container)
+**helm/ai-app/templates/deployment-ollama.yaml (init container)**
 ```yaml
 command:
   - /bin/sh
