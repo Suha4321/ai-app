@@ -1,0 +1,37 @@
+---
+# Ollama persistent volume claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ai-app.fullname" . }}-ollama-pvc
+  labels:
+    {{- include "ai-app.labels" . | nindent 4 }}
+    component: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.ollama.persistence.storageClassName }}
+  storageClassName: {{ .Values.ollama.persistence.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.ollama.persistence.size }}
+
+---
+# Gradio persistent volume claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ai-app.fullname" . }}-gradio-pvc
+  labels:
+    {{- include "ai-app.labels" . | nindent 4 }}
+    component: gradio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.gradio.persistence.storageClassName }}
+  storageClassName: {{ .Values.gradio.persistence.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.gradio.persistence.size }}

@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ai-app.fullname" . }}-gradio
+  labels:
+    {{- include "ai-app.labels" . | nindent 4 }}
+    component: gradio
+spec:
+  replicas: {{ .Values.gradio.replicaCount }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "ai-app.selectorLabels" . | nindent 6 }}
+      component: gradio
+  template:
+    metadata:
+      labels:
+        {{- include "ai-app.selectorLabels" . | nindent 8 }}
+        component: gradio
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+
+      containers:
+      - name: gradio
+        image: "{{ .Values.gradio.image.repository }}:{{ .Values.gradio.image.tag }}"
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.gradio.containerPort }}
+          protocol: TCP
+
+        # Load all config from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: {{ include "ai-app.fullname" . }}-config
+
+        # Service URLs from ConfigMap
+        env:
+        - name: FASTAPI_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "ai-app.fullname" . }}-config
+              key: FASTAPI_URL
+        - name: OLLAMA_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "ai-app.fullname" . }}-config
+              key: OLLAMA_URL
+        - name: DB_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "ai-app.fullname" . }}-config
+              key: DB_PATH
+
+        resources:
+          {{- toYaml .Values.gradio.resources | nindent 12 }}
+
+        volumeMounts:
+        - name: gradio-data
+          mountPath: {{ .Values.gradio.persistence.mountPath }}
+
+        # Liveness probe
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.gradio.healthCheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+
+        # Readiness probe
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.gradio.healthCheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+
+      # Init container to wait for FastAPI
+      initContainers:
+      - name: wait-for-fastapi
+        image: curlimages/curl:8.11.1
+        command:
+          - sh
+          - -c
+          - |
+            until curl -s http://{{ include "ai-app.fullname" . }}-fastapi:{{ .Values.fastapi.port }}/health > /dev/null; do
+              echo "waiting for fastapi..."
+              sleep 2
+            done
+            echo "fastapi is ready"
+
+      volumes:
+      - name: gradio-data
+        persistentVolumeClaim:
+          claimName: {{ include "ai-app.fullname" . }}-gradio-pvc

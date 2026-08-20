@@ -1,0 +1,279 @@
+# Complete values.yaml for ai-app Helm chart
+# All infrastructure details centralized here
+
+# Global settings
+global:
+  namespace: ai-app
+  imagePullPolicy: IfNotPresent
+
+# Probe defaults (used across all deployments)
+probes:
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Security context defaults
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+
+# ====================== OLLAMA ======================
+ollama:
+  enabled: true
+
+  # Container configuration
+  image:
+    repository: ollama/ollama
+    tag: "0.3.12"
+    pullPolicy: IfNotPresent
+
+  # Port configuration
+  port: 11434
+  containerPort: 11434
+
+  # Replica configuration
+  replicaCount: 1
+
+  # Resource allocation
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "2"
+    limits:
+      memory: "8Gi"
+      cpu: "4"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 11434
+    targetPort: http
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClassName: standard
+    mountPath: /root/.ollama
+
+  # Models to pre-load
+  models:
+    - "llama3.2"
+    - "phi3:mini"
+    - "qwen2.5:3b"
+    - "gemma2:2b"
+    - "nomic-embed-text"
+
+  # Health checks (overrides probes.*)
+  healthCheck:
+    path: /api/tags
+    port: 11434
+
+# ====================== FASTAPI ======================
+fastapi:
+  enabled: true
+
+  # Container configuration
+  image:
+    repository: ai-app-fastapi
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # Port configuration
+  port: 8000
+  containerPort: 8000
+
+  # Replica configuration
+  replicaCount: 1
+
+  # Resource allocation
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: http
+
+  # Environment variables (ConfigMap)
+  env:
+    LOG_LEVEL: "info"
+    REQUEST_TIMEOUT: "120"
+    WORKER_PROCESSES: "4"
+
+  # Health checks
+  healthCheck:
+    path: /health
+    port: 8000
+    readinessPath: /ready
+
+# ====================== GRADIO ======================
+gradio:
+  enabled: true
+
+  # Container configuration
+  image:
+    repository: ai-app-gradio
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # Port configuration
+  port: 7860
+  containerPort: 7860
+
+  # Replica configuration
+  replicaCount: 1
+
+  # Resource allocation
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+
+  # Service configuration
+  service:
+    type: ClusterIP  # Use ClusterIP for local, LoadBalancer for cloud
+    port: 7860
+    targetPort: http
+
+  # Environment variables (ConfigMap)
+  env:
+    DEFAULT_MODEL: "llama3.2"
+    AVAILABLE_MODELS: "llama3.2,phi3:mini,qwen2.5:3b,gemma2:2b"
+    REQUEST_TIMEOUT: "120"
+    SERVER_PORT: "7860"
+    CHROMA_TELEMETRY_ON: "False"
+    ANONYMIZED_TELEMETRY: "False"
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClassName: standard
+    mountPath: /app/data
+
+  # Health checks
+  healthCheck:
+    path: /
+    port: 7860
+
+# ====================== DATABASE & STORAGE ======================
+database:
+  chatHistoryPath: /app/data/chat_history.db
+  chromaDbPath: /app/chroma_db
+
+# ====================== OPEN WEBUI (Optional) ======================
+open-webui:
+  enabled: false
+
+  image:
+    repository: ghcr.io/open-webui/open-webui
+    tag: main
+    pullPolicy: IfNotPresent
+
+  port: 8080
+  containerPort: 8080
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  env:
+    OLLAMA_BASE_URL: "http://ollama:11434"
+
+# ====================== INGRESS (Production) ======================
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+  hosts:
+    - host: ai-app.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: gradio
+              port:
+                number: 7860
+
+  tls:
+    - secretName: ai-app-tls
+      hosts:
+        - ai-app.example.com
+
+# ====================== AUTOSCALING (Production) ======================
+autoscaling:
+  enabled: false
+
+  gradio:
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  fastapi:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+# ====================== MONITORING (Week 3) ======================
+monitoring:
+  enabled: false
+
+  prometheus:
+    enabled: false
+    interval: 30s
+    port: 9090
+
+  grafana:
+    enabled: false
+    port: 3000
+
+# ====================== NETWORK POLICIES ======================
+networkPolicy:
+  enabled: false
+
+  # Allow traffic from ingress to gradio
+  ingressAllowed: false
+
+  # Allow pod-to-pod communication
+  podToPodAllowed: true
+
+# ====================== DEPLOYMENT STRATEGY ======================
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# ====================== POD DISRUPTION BUDGET (Production) ======================
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

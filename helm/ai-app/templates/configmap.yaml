@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ai-app.fullname" . }}-config
+  labels:
+    {{- include "ai-app.labels" . | nindent 4 }}
+data:
+  # Service URLs (auto-generated from Helm)
+  FASTAPI_URL: "http://{{ include "ai-app.fullname" . }}-fastapi:{{ .Values.fastapi.port }}/ask"
+  OLLAMA_URL: "http://{{ include "ai-app.fullname" . }}-ollama:{{ .Values.ollama.port }}"
+
+  # FastAPI configuration
+  LOG_LEVEL: {{ .Values.fastapi.env.LOG_LEVEL | quote }}
+  REQUEST_TIMEOUT: {{ .Values.fastapi.env.REQUEST_TIMEOUT | quote }}
+  WORKER_PROCESSES: {{ .Values.fastapi.env.WORKER_PROCESSES | quote }}
+
+  # Gradio configuration
+  DEFAULT_MODEL: {{ .Values.gradio.env.DEFAULT_MODEL | quote }}
+  AVAILABLE_MODELS: {{ .Values.gradio.env.AVAILABLE_MODELS | quote }}
+  SERVER_PORT: {{ .Values.gradio.env.SERVER_PORT | quote }}
+  CHROMA_TELEMETRY_ON: {{ .Values.gradio.env.CHROMA_TELEMETRY_ON | quote }}
+  ANONYMIZED_TELEMETRY: {{ .Values.gradio.env.ANONYMIZED_TELEMETRY | quote }}
+
+  # Database paths
+  DB_PATH: {{ .Values.database.chatHistoryPath | quote }}
+  CHROMA_DB_PATH: {{ .Values.database.chromaDbPath | quote }}
